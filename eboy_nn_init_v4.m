@@ -1,0 +1,121 @@
+function net = eboy_nn_init_v2(varargin)
+opts.networkType = 'simplenn' ;
+opts = vl_argparse(opts, varargin) ;
+
+% Define network CIFAR10-quick
+net.layers = {} ;
+
+net = defineLayers1(net);
+%net = defineLayers2(net);
+
+% Loss layer
+net.layers{end+1} = struct('type', 'softmaxloss') ;
+
+% Meta parameters
+net.meta.inputSize = [50 30 3] ;
+%net.meta.trainOpts.learningRate = 0.1 * [0.05*ones(1,30) 0.005*ones(1,10) 0.0005*ones(1,5)] ;
+net.meta.trainOpts.learningRate = 0.001;
+net.meta.trainOpts.weightDecay = 0.005 ;
+net.meta.trainOpts.momentum = 0.95;
+net.meta.trainOpts.batchSize = 100 ;
+net.meta.trainOpts.numEpochs = numel(net.meta.trainOpts.learningRate) ;
+
+% Default values
+% opts.learningRate = 0.001 ;
+% opts.weightDecay = 0.0005 ;
+% opts.momentum = 0.9 ;
+
+% Fill in default values
+net = vl_simplenn_tidy(net) ;
+
+% Switch to DagNN if requested
+switch lower(opts.networkType)
+  case 'simplenn'
+    % done
+  case 'dagnn'
+    net = dagnn.DagNN.fromSimpleNN(net, 'canonicalNames', true) ;
+    net.addLayer('error', dagnn.Loss('loss', 'classerror'), ...
+             {'prediction','label'}, 'error') ;
+  otherwise
+    assert(false) ;
+end
+
+end
+
+
+function net = defineLayers1(net)
+
+  lr = [1 2] ;
+
+% Block 1
+net.layers{end+1} = struct('type', 'conv', ...
+                           'weights', {{0.01*randn(5,5,3,16, 'single'), zeros(1, 16, 'single')}}, ...
+                           'learningRate', lr, ...
+                           'stride', 1, ...
+                           'pad', 0) ;                       
+net.layers{end+1} = struct('type', 'pool', ...
+                           'method', 'max', ...
+                           'pool', [3 3], ...
+                           'stride', 2, ...
+                           'pad', [0 1 0 1]) ;
+net.layers{end+1} = struct('type', 'relu') ;
+
+% Block 2
+net.layers{end+1} = struct('type', 'conv', ...
+                           'weights', {{0.05*randn(5,3,16,32, 'single'), zeros(1,32,'single')}}, ...
+                           'learningRate', lr, ...
+                           'stride', 1, ...
+                           'pad', 0) ;
+net.layers{end+1} = struct('type', 'relu') ;
+net.layers{end+1} = struct('type', 'conv', ...
+                           'weights', {{0.05*randn(5,3,32,32, 'single'), zeros(1,32,'single')}}, ...
+                           'learningRate', lr, ...
+                           'stride', 1, ...
+                           'pad', 0) ;
+net.layers{end+1} = struct('type', 'relu') ;
+net.layers{end+1} = struct('type', 'pool', ...
+                           'method', 'avg', ...
+                           'pool', [3 3], ...
+                           'stride', 2, ...
+                           'pad', [0 1 0 1]) ; % Emulate caffe
+
+
+
+% Block 4
+net.layers{end+1} = struct('type', 'conv', ...
+                           'weights', {{0.05*randn(5,3,32,64, 'single'), zeros(1,64,'single')}}, ...
+                           'learningRate', lr, ...
+                           'stride', 1, ...
+                           'pad', 0) ;
+net.layers{end+1} = struct('type', 'relu') ;
+net.layers{end+1} = struct('type', 'conv', ...
+                           'weights', {{0.05*randn(3,2,64,64, 'single'), zeros(1,64,'single')}}, ...
+                           'learningRate', lr, ...
+                           'stride', 1, ...
+                           'pad', 0) ;
+net.layers{end+1} = struct('type', 'relu') ;
+
+% Block 5
+net.layers{end+1} = struct('type', 'conv', ...
+                           'weights', {{0.05*randn(1,1,64,2, 'single'), zeros(1,2,'single')}}, ...
+                           'learningRate', .1*lr, ...
+                           'stride', 1, ...
+                           'pad', 0) ;
+  
+end
+
+
+% --------------------------------------------------------------------
+function net = insertBnorm(net, l)
+% --------------------------------------------------------------------
+
+assert(isfield(net.layers{l}, 'weights'));
+ndim = size(net.layers{l}.weights{1}, 4);
+layer = struct('type', 'bnorm', ...
+               'weights', {{ones(ndim, 1, 'single'), zeros(ndim, 1, 'single')}}, ...
+               'learningRate', [1 1 0.05], ...
+               'weightDecay', [0 0]) ;
+net.layers{l}.biases = [] ;
+net.layers = horzcat(net.layers(1:l), layer, net.layers(l+1:end)) ;
+
+end
